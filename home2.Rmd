@@ -1,0 +1,230 @@
+---
+title: "Homework 2"
+author: "Yuhao Mao 3170102264"
+date: "2020/7/7"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+*****
+## **Problem 1: Calif_penn_2011 data set.**
+
+### 1. Reading and Cleaning.
+
+a. Load data into data frame *ca_pa*.
+```{r}
+ca_pa <- read.csv("data/calif_penn_2011.csv")
+```
+
+b. Get number of rows and columns.
+```{r}
+dim(ca_pa)
+```
+There are 11275 rows and 34 columns in total.
+
+c. Column sum and apply command.
+```{r}
+colSums(apply(ca_pa,c(1,2),is.na))
+```
+The `apply()` function applies `is.na()` function on every entry of ca_pa data frame. After that, `colSums()` function sums all columns. As a whole this command calculates the number of NA entries in each column.
+
+d. Filter out NA values.
+```{r}
+ca_pa.clean <- na.omit(ca_pa)
+```
+
+e. Number of rows that are filtered out:
+```{r}
+dim(ca_pa)[1]-dim(ca_pa.clean)[1]
+```
+
+f. In (c) we calculate the number of NAs in each column and in (e) we calculate the number of rows that contain NAs. Since all column sums in (c) is smaller than our result in (e), it is compatible.
+
+### 2. The very new house.
+
+a. Plot median house price against percentage of houses.
+```{r out.width=400}
+plot(Median_house_value~Built_2005_or_later, data=ca_pa.clean)
+```
+
+b. Plot according to STATEFP.
+```{r}
+library(ggplot2)
+ca_pa.clean$STATEFP <- as.character(ca_pa.clean$STATEFP)
+ggplot(ca_pa.clean, aes(Median_house_value, Built_2005_or_later, color=STATEFP)) + geom_point()
+ca_pa.clean$STATEFP <- as.numeric(ca_pa.clean$STATEFP)
+```
+
+### 3. Nobody home.
+a. The vacancy rate.
+```{r}
+ca_pa.clean["Vacancy_rate"]<- ca_pa.clean$Vacant_units/ca_pa.clean$Total_units
+```
+The maximum:
+```{r}
+summary(ca_pa.clean$Vacancy_rate)
+```
+
+b. Plot vacancy rate against median house value.
+```{r}
+plot(Vacancy_rate~Median_house_value, data=ca_pa.clean)
+```
+
+c. Repeat (b) according to states.
+```{r}
+ca_pa.clean$STATEFP <- as.character(ca_pa.clean$STATEFP)
+ggplot(ca_pa.clean, aes(Vacancy_rate, Median_house_value, color=STATEFP)) + geom_point()
+ca_pa.clean$STATEFP <- as.numeric(ca_pa.clean$STATEFP)
+```
+There is a difference across these two states.
+In California (STATEFP 6), there are more valuable houses with low vacancy rate. In addition, in Pennsylvania (STATEFP 42), highly vacant houses are all of low median house value.
+
+### 4. Counties.
+a. Explain following codes.
+```{r}
+## Extract indexs of all Alameda County rows which is in California.
+acca <- c()
+for (tract in 1:nrow(ca_pa.clean)) {
+  if (ca_pa.clean$STATEFP[tract] == 6) {
+    if (ca_pa.clean$COUNTYFP[tract] == 1) {
+      acca <- c(acca, tract)
+    }
+  }
+}
+## Extract all median house values of Alameda County.
+accamhv <- c()
+for (tract in acca) {
+  accamhv <- c(accamhv, ca_pa.clean[tract,10])
+}
+## Get median of Median_house_value of Alameda county.
+median(accamhv)
+```
+
+b. Replace the code chunk by single line.
+```{r}
+median(ca_pa.clean$Median_house_value[ca_pa.clean$COUNTYFP==1 & ca_pa.clean$STATEFP==6])
+```
+
+c. For Alameda, Santa Clara and Allegheny Counties, what were the average percentages of housing built since 2005?
+```{r}
+## Alameda
+Alameda.index <- ca_pa.clean$COUNTYFP==1 & ca_pa.clean$STATEFP==6
+mean(ca_pa.clean$Built_2005_or_later[Alameda.index])
+```
+```{r}
+## Santa Clara
+Santa_Clara.index <- ca_pa.clean$COUNTYFP==85 & ca_pa.clean$STATEFP==6
+mean(ca_pa.clean$Built_2005_or_later[Santa_Clara.index])
+```
+```{r}
+## Allegheny
+Allegheny.index <- ca_pa.clean$COUNTYFP==3 & ca_pa.clean$STATEFP==42
+mean(ca_pa.clean$Built_2005_or_later[Allegheny.index])
+```
+
+d. Correlations.
+```{r}
+## Whole data
+cor(ca_pa.clean[c("Median_house_value", "Built_2005_or_later")])
+```
+```{r}
+## All California
+california <- ca_pa.clean[ca_pa.clean$STATEFP==6,]
+cor(california[c("Median_house_value", "Built_2005_or_later")])
+```
+```{r}
+## All Pennsylvania
+penn <- ca_pa.clean[ca_pa.clean$STATEFP==42,]
+cor(penn[c("Median_house_value", "Built_2005_or_later")])
+```
+```{r}
+## Alameda
+
+cor(ca_pa.clean[Alameda.index,][c("Median_house_value", "Built_2005_or_later")])
+```
+```{r}
+## Santa Clara
+cor(ca_pa.clean[Santa_Clara.index,][c("Median_house_value", "Built_2005_or_later")])
+```
+```{r}
+## Allegheny
+cor(ca_pa.clean[Allegheny.index,][c("Median_house_value", "Built_2005_or_later")])
+```
+
+e. Plot median house values against median income for three counties.
+```{r out.width=300}
+## Alameda
+plot(Median_house_value~Median_household_income, data=ca_pa.clean[Alameda.index,])
+title("Alameda")
+```
+```{r out.width=300}
+## Santa Clara
+plot(Median_house_value~Median_household_income, data=ca_pa.clean[Santa_Clara.index,])
+title("Santa Clara")
+```
+```{r out.width=300}
+## Allegheny
+plot(Median_house_value~Median_household_income, data=ca_pa.clean[Allegheny.index,])
+title("Allegheny")
+```
+
+*****
+## Problem 2: Explain following codes about `table()`.
+```{r}
+## table uses the cross-classifying factors to build a contingency table of the counts at each combination of factor levels.
+## There are 91 female and 92 male.
+gender <- factor(c(rep("female", 91), rep("male", 92)))
+table(gender)
+```
+```{r}
+## Specifying levels gives ordered factors.
+## There are 92 male and 91 female.
+gender <- factor(gender, levels=c("male", "female"))
+table(gender)
+```
+```{r}
+## If some entry in the specified levels do not exist, NA will be used in the place.
+gender <- factor(gender, levels=c("Male", "female"))
+# Note the mistake: "Male" should be "male"
+table(gender)
+```
+```{r}
+## By default, NA and NaN are excluded.
+## If exclude is set to NULL, then NULL will also be included.
+table(gender, exclude=NULL)
+```
+
+*****
+## Problem 3: Function to calculate percentile
+```{r}
+percentile <- function(v, cutoff){
+  count <- 0
+  for(x in v){
+    if(x>cutoff){
+      count <- count+1
+    }
+  }
+  return(count/length(v))
+}
+```
+```{r}
+## Tests
+v <- seq(1,100)
+percentile(v, 50)
+```
+
+*****
+## Problem 4: Rabbit data set.
+```{r}
+library(MASS)
+data(Rabbit)
+Dose <- unstack(Rabbit, Dose ~ Animal)[,1]
+Treatment <- unstack(Rabbit, Treatment ~ Animal)[,1]
+BPchange <- unstack(Rabbit, BPchange ~ Animal)
+Rabbit.change <- data.frame(Treatment, Dose, BPchange)
+Rabbit.change 
+```
+

@@ -1,0 +1,106 @@
+---
+title: "Homework 4"
+author: "Yuhao Mao"
+date: "2020/7/12"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r message=F, include=F}
+library(tidyverse)
+```
+
+```{r message=F}
+ckm_nodes <- read_csv('data/ckm_nodes.csv')
+ckm_network <- read.table("data/ckm_network.dat")
+```
+
+## 1. Clean the data.
+```{r}
+ckm_nodes.valid.index <- which(!is.na(ckm_nodes$adoption_date))
+ckm_nodes <- ckm_nodes[ckm_nodes.valid.index,]
+ckm_network <- ckm_network[ckm_nodes.valid.index, ckm_nodes.valid.index]
+```
+
+## 2. Reformat data.
+```{r}
+data <- data.frame(month=rep(c(1:16,Inf),each=125),doctor=rep(as.numeric(rownames(ckm_nodes)),times=17),adoption_date=rep(ckm_nodes$adoption_date,times=17))
+data$this_month <- data$month==data$adoption_date
+data$before_this_month <- data$month>data$adoption_date
+
+cal.before <- function(vec){
+  doc <- vec[2]
+  month <- vec[1]
+  contact <- which(ckm_network[doc,]==1)
+  contact_adopt <- ckm_nodes$adoption_date[contact]
+  return(sum(contact_adopt<month))
+}
+cal.before_or_eq <- function(vec){
+  doc <- vec[2]
+  month <- vec[1]
+  contact <- which(ckm_network[doc,]==1)
+  contact_adopt <- ckm_nodes$adoption_date[contact]
+  return(sum(contact_adopt<=month))
+}
+
+data$num_contact_before <- apply(data, 1, cal.before)
+data$num_contact_before_or_eq <- apply(data, 1, cal.before_or_eq)
+data$adoption_date <- NULL
+```
+
+Because there are 125 doctors and 17 month values, total number of rows is $125\times17=2125$.
+
+## 3. Probabilities.
++a. 
+```{r}
+max(data[,c(5,6)])
+```
+Since the maximum value of k is 20, we can only estimate at most 21 values of k.
+
++b. Calculate $p_k$.
+```{r}
+pk <- c()
+for(k in 0:20){
+  joint <- sum(data$this_month&data$num_contact_before==k)
+  cond <- sum(data$num_contact_before==k)
+  pk <- c(pk, joint/cond)
+}
+plot(0:20, pk, type='l', xlab='k')
+```
+
++c. Calculate $q_k$.
+```{r}
+qk <- c()
+for(k in 0:20){
+  joint <- sum(data$this_month&data$num_contact_before_or_eq==k)
+  cond <- sum(data$num_contact_before_or_eq==k)
+  qk <- c(qk, joint/cond)
+}
+
+plot(0:20, qk, type='l', xlab='k')
+```
+
+## 4. Interpretation of $p_k$.
++a. Linear model.
+```{r}
+pk <- data.frame(pk=pk,k=0:20)
+pk <- pk %>% filter(!is.na(pk))
+linear.result <- lm(pk~k, data=pk)
+linear.result$coefficients
+```
++b. Logistic model.
+```{r}
+logit.result <- glm(pk~k,data=pk,family = "binomial")
+summary(logit.result)
+```
+Therefore, if $k$ increases by 1, then $a+bk$ decreases because its coefficient is negative and $e^{a+bk}$ is smaller. By the monotonicity of logit function, we find $p_k$ is smaller.
+
++c. Plot fitted values.
+```{r}
+pk %>% ggplot() + geom_line(aes(k, pk), col="black", size=1.5) +
+  geom_line(aes(k, linear.result$fitted.values), col="blue", size=1.5) +
+  geom_line(aes(k, logit.result$fitted.values), col="red", size=1.5)
+```
+I prefer the logistic model because it seems to capture the trend when k increases while the linear model exihibts some kinds of deviation.

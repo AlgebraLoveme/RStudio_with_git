@@ -1,0 +1,198 @@
+---
+title: "Project: COVID-19"
+author: "Yuhao Mao"
+documentclass: ctexart
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+classoption: "hyperref,"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F)
+```
+
+```{r message=F, include=F}
+require(tidyverse)
+require(sp)
+require(rworldmap)
+
+library(tidyverse)
+```
+
+# Introduction
+
+COVID-19, also known as corona virus, has enforced people to stay home for more than half a year. Since its breakout, Chinese government has taken numerous attempts, including lock-down, to prevent its spread. Although now the epidemic in China has been well controlled, in other parts of the world, such as the United States, the virus still remains powerful.
+
+Numerous scientists have tried to help. Some researchers proposed new models to predict the spread trend of the epidemic, some researchers focused on inventing a cure for the pneumonia caused by COVID-19 and others analyze the data of the epidemic to get an insight. To facilitate the analysis and make the disease data open to everyone, John Hopkins University has been maintaining a Github repository containing daily data \footnote{\url{https://github.com/CSSEGISandData/COVID-19}}. This repository collects data from the visual dashboard of JHU CSSE\footnote{\url{https://www.arcgis.com/apps/opsdashboard/index.html\#/bda7594740fd40299423467b48e9ecf6}} and stores in the format of csv file.
+
+In this project, I will use the daily data downloaded from the repository to do some analysis.
+
+# Load data and preprocess
+```{r echo=F, include=F}
+confirmed.global <- read_csv("data/time_series_covid19_confirmed_global.csv")
+death.global <- read_csv("data/time_series_covid19_deaths_global.csv")
+```
+The raw data size is:
+```{r}
+dim(confirmed.global)
+dim(death.global)
+```
+In the raw data, dates are formatted to be columns (only display the previous ten column names), along with the country, the latitude and the longitude:
+```{r}
+colnames(confirmed.global)[1:10]
+```
+To make the data format suitable for analysis, we need to reformat it so that date is a single column.
+```{r warning=F}
+confirmed.global <- confirmed.global %>%
+  pivot_longer(-c(`Province/State`,`Country/Region`, `Lat`, `Long`), 
+               names_to="Date",
+               values_to="count")
+death.global <- death.global %>%
+  pivot_longer(-c(`Province/State`,`Country/Region`, `Lat`, `Long`), 
+               names_to="Date",
+               values_to="count")
+confirmed.global$Date <- as.Date(confirmed.global$Date, "%m/%d/%y")
+death.global$Date <- as.Date(death.global$Date, "%m/%d/%y")
+head(confirmed.global, n=2)
+head(death.global, n=2)
+```
+Let's see we have data from when to when.
+```{r}
+max(confirmed.global$Date)
+min(confirmed.global$Date)
+```
+So we are getting data from 2020-01-22 to 2020-07-12. Do we have NA in columns apart from the `Province/State` column?
+```{r}
+any(is.na(confirmed.global[, 2:length(confirmed.global)]))
+any(is.na(death.global[, 2:length(death.global)]))
+```
+Luckily, there is no NA in the data. JHU is good at database maintaining!
+
+
+# Analysis of the data
+## The trend across the world.
+To begin with, let's see how the confirmed cases and deaths evolve across time.
+
+```{r message=F, warning=F, echo=F}
+focus.countries <- c("China", "India","United Kingdom", "Australia","US","German","Singapore","Japan","South Africa","France","Sweden","Switzerland")
+confirmed.global %>% filter(`Country/Region` %in% focus.countries) %>% group_by(`Date`,`Country/Region`) %>% dplyr::summarize(`total confirmed`=sum(count)) %>% ungroup() %>% ggplot()+geom_line(aes(x=Date,y=log10(`total confirmed`),col=`Country/Region`),size=1.5)
+death.global %>% filter(`Country/Region` %in% focus.countries) %>% group_by(`Date`,`Country/Region`) %>% dplyr::summarize(`total deaths`=sum(count)) %>% ungroup() %>% ggplot()+geom_line(aes(x=Date,y=log10(`total deaths`),col=`Country/Region`),size=1.5)
+```
+We can conclude that in the early phase of the epidemic in every country, the situation is out of control and the confirmed cases and deaths grow exponentially, following the exponential growth curve. So far, a lot of countries have managed to control the epidemic but some countries, such as the United States, India and South Africa, still has an exponential growth of infestors although the power is smaller than outbreak. China and European countries have almost no new cases now.
+
+## Trends in different parts of the world.
+Many diseases show interesting phenomenons by temperature, which is roughly represented by the latitude. We discuss if latitude makes difference in the COVID infests.
+```{r echo=F}
+## Add indicator of latitude
+lat.group <- function(x){
+  latitude <- as.numeric(x[[3]])
+  #print(latitude)
+  if(abs(latitude)<5){return("less than 5")}
+  else if(abs(latitude<10)){return("5-10")}
+  else if(abs(latitude)<20){return("10-20")}
+  else if(abs(latitude<40)){return("20-40")}
+  else if(abs(latitude<60)){return("40-60")}
+  else{return("larger than 60")}
+}
+confirmed.global$Lat.indicator <- apply(confirmed.global,1,lat.group)
+death.global$Lat.indicator <- apply(death.global,1,lat.group)
+```
+
+We visualize the impact of latitude below.
+
+```{r echo=F, message=F}
+confirmed.global %>% group_by(`Date`,`Lat.indicator`) %>% dplyr::summarize(`average confirmed`=mean(count)) %>% ungroup() %>% ggplot()+geom_line(aes(x=Date,y=log10(`average confirmed`),col=`Lat.indicator`),size=1.5)
+death.global %>% group_by(`Date`,`Lat.indicator`) %>% dplyr::summarize(`average deaths`=mean(count)) %>% ungroup() %>% ggplot()+geom_line(aes(x=Date,y=log10(`average deaths`),col=`Lat.indicator`),size=1.5)
+```
+It seems that hot areas (latitude smaller than 20) and cold areas (latitude larger than 60) have less infestors. Of course, this conclusion can be biased because some countries with large number of infestors, such as the US and India, are located between 20-40.
+
+## Difference across continents.
+In general, Australia, Europe and North America mainly consist of developed countries that have robust medical systems and countries in Africa are poor and their medical systems are fragile. To see if it makes a difference in the spread of COVID-19, we plot the trends according to continent.
+
+First of all, we only have longitude and latitude of each region, so we need to map the coordinates to continents. To do this, we need two R packages: `sp` and `rworldmap`.
+```{r message=F}
+library(sp)
+library(rworldmap)
+
+coords2continent = function(points)
+{  
+  countriesSP <- getMap(resolution='low')
+  pointsSP <-  SpatialPoints(
+    points,proj4string=CRS(proj4string(countriesSP)))  
+  indices = over(pointsSP, countriesSP)
+  indices$REGION
+}
+confirmed.global$continent <-
+  coords2continent(as.data.frame(confirmed.global[,c("Long", "Lat")]))
+death.global$continent <-
+  coords2continent(as.data.frame(death.global[,c("Long", "Lat")]))
+```
+```{r echo=F, message=F}
+confirmed.global %>% filter(!is.na(continent)) %>% group_by(`Date`,`continent`) %>% dplyr::summarize(`total confirmed`=sum(count)) %>% ungroup() %>% ggplot()+geom_line(aes(x=Date,y=log10(`total confirmed`),col=`continent`),size=1.5)
+
+death.global %>% filter(!is.na(continent)) %>% group_by(`Date`,`continent`) %>% dplyr::summarize(`total death`=sum(count)) %>% ungroup() %>% ggplot()+geom_line(aes(x=Date,y=log10(`total death`),col=`continent`),size=1.5)
+```
+
+## Trends inside China.
+In this section, we will visualize how the epidemic in China spreads.
+```{r echo=F, message=F}
+confirmed.global %>% filter(`Country/Region`=='China') %>% group_by(`Date`, `Province/State`) %>% summarize(`total confirmed`=sum(count)) %>% ungroup() %>% ggplot() + geom_line(aes(x=Date, y=log10(`total confirmed`), col=`Province/State`), size=1.5)
+death.global %>% filter(`Country/Region`=='China') %>% group_by(`Date`, `Province/State`) %>% summarize(`total death`=sum(count)) %>% ungroup() %>% ggplot() + geom_line(aes(x=Date, y=log10(`total death`), col=`Province/State`), size=1.5)
+```
+Clearly, after April, there are almost no new cases inside China mainland. It is not surprising to see Hubei has the superior number of infestors because the epidemic broke out there. This plot, although complete, contains too much information for us, so we decompose it below.
+
+We filter out provinces with low number of cases.
+
+```{r echo=F, message=F}
+confirmed.global %>% filter(`Country/Region`=='China') %>% group_by(`Date`, `Province/State`) %>% summarize(`total confirmed`=sum(count)) %>% ungroup() %>% filter(`total confirmed`>1e3) %>% ggplot() + geom_line(aes(x=Date, y=log10(`total confirmed`), col=`Province/State`), size=1.5)
+```
+
+The plot above shows provinces which have confirmed cases greater than 1000. Apart from Hubei, Henan and Hunan which is adjacent to Hubei also suffer from the spread. Besides, rich areas (Guangdong, Hong Kong and Zhejiang), due to their convenient transportation, also have relatively large number of cases.
+
+Next, we show provinces with over ten deaths.
+
+```{r echo=F, message=F}
+death.global %>% filter(`Country/Region`=='China') %>% group_by(`Date`, `Province/State`) %>% summarize(`total death`=sum(count)) %>% ungroup() %>% filter(`total death`>10) %>% ggplot() + geom_line(aes(x=Date, y=log10(`total death`), col=`Province/State`), size=1.5)
+```
+There are only three provinces that have more than ten deaths. What is surprising is that despite having low number of confirmed cases, Heilongjiang already has ten deaths in the middle Feburary, along with Henan. That could be resulted from the cold weather and the prevalent flu there.
+
+# Statistic models for the epidemic
+
+Our goal is to estimate the power of medical testing systems in the early state of each continent. From plot in section 3.3 we know that during the whole March, every continent has a log linear growth curve, which means it is an exponential growth, i.e. the J curve. This kind of curve appears when the disease is totally out of control and is free to get the resources to spread. However, since this data is the number of confirmed cases, it does not fully reflect the real number of infestors. Instead, it shows the growth in the number of test because in that period the disease was spreading so fast that it results in an approximately constant positive rate in the test. Therefore, we can use the power constant of the growth in confirmed cases to estimate the product of the strength of medical testing systems and the infest rate.
+
+What we are going to do is to extract the data from March 1st to April 1st and apply a linear model on log number of confirmed cases against the date.
+```{r}
+march.confirmed <- confirmed.global %>%
+  filter(!is.na(continent)) %>%
+  group_by(`Date`,`continent`) %>%
+  dplyr::summarize(`total confirmed`=sum(count)) %>%
+  ungroup() %>%
+  filter(Date>=as.Date('2020-03-01') &
+           Date<=as.Date('2020-04-01'))
+tb <- table(march.confirmed$continent)
+continents <- (as.data.frame(tb) %>% filter(Freq>0))[,1]
+regression.by.continent <- function(df){
+  result <- lm(log(`total confirmed`)~Date, data=df)
+  summary(result)
+}
+slopes <- c()
+for(cont in continents){
+  print(paste("Result for", cont))
+  df <- march.confirmed %>% filter(continent==cont)
+  result <- regression.by.continent(df)
+  print(result)
+  slopes <- c(slopes, result$coefficients[[2]])
+}
+```
+Not surprisingly (as we have seen from the visualization), all coefficients are statistically significant and R squares are all large (around 0.98). Now we compare their slopes, which is the power constant of the growth.
+```{r echo=F}
+slope.df <- data.frame(slope=slopes, continent=continents)
+slope.df
+```
+Among all continents, Asia has the smallest power constant. That is partially because rich countries in Asia attach great importance to the epidemic and have been dealing with it for a month while poor countries lack the ability to test. It is not surprising that Europe, Australia and Africa have smaller slope than America. The reasons are three-folded. Firstly, Australia and Africa have a vast land and relatively small entrants compared to Europe and America, so number of infests are small. Secondly, countries in Europe, such as Italy that has been known in that period as the first follower of Chinese government's lock-down policy, suffer from breakdown of medical systems, which is a clear sign of medical testing system deficiency. Thirdly, countries in America, e.g. Canada and the US, have strong economic power as well as medical system. Therefore, they are able to give more tests in the early period of the spread.
+
+# Conclusion
+In this project, I use the daily data collected from JHU CSSE project to do analysis based on R. I use functions in the `tidyverse` package to reformat the data and `ggplot` package to visualize it. Furthermore, I use the linear model to estimate the medical power of each continent.
